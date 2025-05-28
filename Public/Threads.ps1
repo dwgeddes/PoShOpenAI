@@ -1,21 +1,26 @@
 #region Threads API Functions
+
 function New-OpenAIThread {
     <#
     .SYNOPSIS
-    Creates a new thread
+    Creates a new conversation thread
     .PARAMETER Messages
-    Initial messages for the thread
+    Optional initial messages for the thread
     .PARAMETER Metadata
-    Additional metadata
+    Optional metadata for the thread
     #>
+    [CmdletBinding()]
     param(
         [array]$Messages = @(),
         [hashtable]$Metadata = @{}
     )
     
     $Body = @{
-        messages = $Messages
         metadata = $Metadata
+    }
+    
+    if ($Messages.Count -gt 0) {
+        $Body.messages = $Messages
     }
     
     return Invoke-OpenAIRequest -Endpoint "threads" -Body $Body
@@ -26,8 +31,9 @@ function Get-OpenAIThread {
     .SYNOPSIS
     Gets a specific thread
     .PARAMETER ThreadId
-    ID of the thread
+    ID of the thread to retrieve
     #>
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ThreadId
@@ -43,8 +49,9 @@ function Update-OpenAIThread {
     .PARAMETER ThreadId
     ID of the thread to update
     .PARAMETER Metadata
-    Updated metadata
+    Updated metadata for the thread
     #>
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ThreadId,
@@ -65,6 +72,7 @@ function Remove-OpenAIThread {
     .PARAMETER ThreadId
     ID of the thread to delete
     #>
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ThreadId
@@ -72,4 +80,5 @@ function Remove-OpenAIThread {
     
     return Invoke-OpenAIRequest -Endpoint "threads/$ThreadId" -Method "DELETE"
 }
+
 #endregion

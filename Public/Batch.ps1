@@ -31,7 +31,7 @@ function New-OpenAIBatch {
     return Invoke-OpenAIRequest -Endpoint "batches" -Body $Body
 }
 
-function Get-OpenAIBatches {
+function Get-OpenAIBatchList {
     <#
     .SYNOPSIS
     Lists batch jobs

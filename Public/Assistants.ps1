@@ -43,7 +43,7 @@ function New-OpenAIAssistant {
     return Invoke-OpenAIRequest -Endpoint "assistants" -Body $Body
 }
 
-function Get-OpenAIAssistants {
+function Get-OpenAIAssistantList {
     <#
     .SYNOPSIS
     Lists assistants

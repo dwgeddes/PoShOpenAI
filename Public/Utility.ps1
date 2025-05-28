@@ -14,7 +14,7 @@ function Test-OpenAIConnection {
         }
         
         Write-Host "Testing OpenAI API connection..." -ForegroundColor Cyan
-        $Models = Get-OpenAIModels
+        $Models = Get-OpenAIModelList
         Write-Host "✓ Successfully connected to OpenAI API" -ForegroundColor Green
         Write-Host "Available models: $($Models.Count)" -ForegroundColor Cyan
         
@@ -110,33 +110,182 @@ function Format-OpenAIResponse {
 function Save-OpenAIResponse {
     <#
     .SYNOPSIS
-    Saves OpenAI response to a file with flexible formatting options
-    .PARAMETER Response
-    The response to save
+    Saves OpenAI API responses to files with multiple format support
+    .PARAMETER InputObject
+    OpenAI response objects from pipeline
     .PARAMETER FilePath
-    Path to save the file
+    Output file path
     .PARAMETER Format
-    Format to save (json, text, csv)
+    Output format (json, csv, xml, txt)
     .PARAMETER IncludeMetadata
-    Whether to include metadata in the saved file
+    Include processing metadata in output
+    .PARAMETER Append
+    Append to existing file instead of overwriting
     .EXAMPLE
-    $result | Save-OpenAIResponse -FilePath "response.json" -IncludeMetadata
+    $results | Save-OpenAIResponse -FilePath "results.json" -Format json
     .EXAMPLE
-    $results | Save-OpenAIResponse -FilePath "chat_results.csv" -Format csv
+    Get-Content "questions.txt" | Send-ChatMessage | Save-OpenAIResponse -FilePath "answers.csv" -Format csv
     #>
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
-        $Response,
+        [PSObject[]]$InputObject,
         
         [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
         [string]$FilePath,
         
         [Parameter()]
-        [ValidateSet("json", "text", "csv")]
+        [ValidateSet("json", "csv", "xml", "txt")]
         [string]$Format = "json",
         
         [Parameter()]
-        [switch]$IncludeMetadata
+        [switch]$IncludeMetadata,
+        
+        [Parameter()]
+        [switch]$Append
+    )
+    
+    begin {
+        $AllObjects = @()
+        $ProcessedCount = 0
+    }
+    
+    process {
+        $AllObjects += $InputObject
+        $ProcessedCount += $InputObject.Count
+    }
+    
+    end {
+        try {
+            # Ensure directory exists
+            $Directory = Split-Path -Path $FilePath -Parent
+            if ($Directory -and -not (Test-Path $Directory)) {
+                New-Item -ItemType Directory -Path $Directory -Force | Out-Null
+            }
+            
+            # Add metadata if requested
+            if ($IncludeMetadata) {
+                $MetadataObject = [PSCustomObject]@{
+                    ExportedAt = Get-Date
+                    TotalRecords = $AllObjects.Count
+                    Format = $Format
+                    ModuleVersion = if (Get-Module PSOpenAI) { (Get-Module PSOpenAI).Version } else { "Unknown" }
+                    ExportedBy = $env:USERNAME
+                    Summary = @{
+                        SuccessfulRequests = ($AllObjects | Where-Object { $_.Success -eq $true }).Count
+                        FailedRequests = ($AllObjects | Where-Object { $_.Success -eq $false }).Count
+                        TotalCost = if ($AllObjects[0].EstimatedCost) {
+                            ($AllObjects | Where-Object { $_.EstimatedCost } | Measure-Object EstimatedCost -Sum).Sum
+                        } else { $null }
+                        UniqueModels = ($AllObjects | Where-Object { $_.Model } | Select-Object -ExpandProperty Model -Unique) -join ", "
+                    }
+                }
+                
+                $ExportData = @{
+                    Metadata = $MetadataObject
+                    Data = $AllObjects
+                }
+            } else {
+                $ExportData = $AllObjects
+            }
+            
+            # Export based on format
+            switch ($Format) {
+                "json" {
+                    $JsonOutput = $ExportData | ConvertTo-Json -Depth 20
+                    if ($Append) {
+                        Add-Content -Path $FilePath -Value $JsonOutput -Encoding UTF8
+                    } else {
+                        Set-Content -Path $FilePath -Value $JsonOutput -Encoding UTF8
+                    }
+                }
+                "csv" {
+                    if ($IncludeMetadata) {
+                        Write-Warning "Metadata not supported in CSV format, exporting data only"
+                        $ExportData = $AllObjects
+                    }
+                    if ($Append) {
+                        $ExportData | Export-Csv -Path $FilePath -NoTypeInformation -Append -Encoding UTF8
+                    } else {
+                        $ExportData | Export-Csv -Path $FilePath -NoTypeInformation -Encoding UTF8
+                    }
+                }
+                "xml" {
+                    $XmlOutput = $ExportData | ConvertTo-Xml -Depth 20 -NoTypeInformation
+                    if ($Append) {
+                        Add-Content -Path $FilePath -Value $XmlOutput.OuterXml -Encoding UTF8
+                    } else {
+                        Set-Content -Path $FilePath -Value $XmlOutput.OuterXml -Encoding UTF8
+                    }
+                }
+                "txt" {
+                    $TextOutput = $AllObjects | ForEach-Object {
+                        "=== $(if ($_.Type) { $_.Type } else { 'OpenAI' }) Response ===" 
+                        "Input: $($_.Input)"
+                        "Output: $($_.Output -or $_.Response)"
+                        if ($_.Success -eq $false) { "Error: $($_.Error)" }
+                        if ($_.EstimatedCost) { "Cost: `$$($_.EstimatedCost)" }
+                        "Processed: $($_.ProcessedAt)"
+                        ""
+                    }
+                    if ($Append) {
+                        Add-Content -Path $FilePath -Value $TextOutput -Encoding UTF8
+                    } else {
+                        Set-Content -Path $FilePath -Value $TextOutput -Encoding UTF8
+                    }
+                }
+            }
+            
+            [PSCustomObject]@{
+                FilePath = $FilePath
+                Format = $Format
+                RecordsExported = $AllObjects.Count
+                FileSize = (Get-Item $FilePath).Length
+                Success = $true
+                ExportedAt = Get-Date
+            }
+        }
+        catch {
+            Write-OpenAIError -Message "Failed to save responses to file: $($_.Exception.Message)" -Exception $_.Exception -Category WriteError -ErrorId "SaveResponseError" -TargetObject $FilePath
+            
+            [PSCustomObject]@{
+                FilePath = $FilePath
+                Format = $Format
+                RecordsExported = 0
+                Success = $false
+                Error = $_.Exception.Message
+                ExportedAt = Get-Date
+            }
+        }
+    }
+}
+
+function Compare-OpenAIResponse {
+    <#
+    .SYNOPSIS
+    Compares multiple OpenAI responses for analysis and A/B testing
+    .PARAMETER Responses
+    Array of OpenAI response objects to compare
+    .PARAMETER CompareBy
+    What to compare (Cost, Quality, Speed, Tokens)
+    .PARAMETER OutputFormat
+    Format for comparison output
+    .EXAMPLE
+    $responses | Compare-OpenAIResponse -CompareBy @("Cost", "Speed")
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
+        [PSObject[]]$Responses,
+        
+        [Parameter()]
+        [ValidateSet("Cost", "Quality", "Speed", "Tokens", "Success")]
+        [string[]]$CompareBy = @("Cost", "Tokens", "Success"),
+        
+        [Parameter()]
+        [ValidateSet("Table", "Grid", "Summary")]
+        [string]$OutputFormat = "Table"
     )
     
     begin {
@@ -144,71 +293,187 @@ function Save-OpenAIResponse {
     }
     
     process {
-        $AllResponses += $Response
+        $AllResponses += $Responses
     }
     
     end {
-        $Directory = Split-Path $FilePath -Parent
-        if ($Directory -and -not (Test-Path $Directory)) {
-            New-Item -ItemType Directory -Path $Directory -Force | Out-Null
-        }
-        
-        switch ($Format.ToLower()) {
-            "json" {
-                $AllResponses | ConvertTo-Json -Depth 10 | Out-File -FilePath $FilePath -Encoding UTF8
+        try {
+            if ($AllResponses.Count -lt 2) {
+                Write-Warning "Need at least 2 responses to compare"
+                return
             }
-            "text" {
-                $TextContent = foreach ($Resp in $AllResponses) {
-                    if ($Resp.choices) {
-                        $Resp.choices[0].message.content
-                    }
-                    elseif ($Resp.Response) {
-                        $Resp.Response
-                    }
-                    else {
-                        $Resp | Out-String
-                    }
-                    ""  # Add blank line between responses
+            
+            $ComparisonResults = foreach ($Response in $AllResponses) {
+                [PSCustomObject]@{
+                    Input = $Response.Input
+                    Model = $Response.Model
+                    Success = $Response.Success
+                    Cost = $Response.EstimatedCost
+                    Tokens = $Response.TotalTokens -or $Response.TokensUsed
+                    ProcessingTime = if ($Response.ProcessedAt -and $Response.CreatedAt) {
+                        ($Response.ProcessedAt - $Response.CreatedAt).TotalSeconds
+                    } else { $null }
+                    OutputLength = if ($Response.Output -or $Response.Response) {
+                        ($Response.Output -or $Response.Response).Length
+                    } else { 0 }
+                    Type = $Response.Type
                 }
-                $TextContent | Out-File -FilePath $FilePath -Encoding UTF8
             }
-            "csv" {
-                $CsvData = foreach ($Resp in $AllResponses) {
-                    if ($Resp.Input -and $Resp.Response) {
-                        # Chat message format
-                        [PSCustomObject]@{
-                            Input = $Resp.Input
-                            Response = $Resp.Response
-                            Model = $Resp.Model
-                            TotalTokens = $Resp.TotalTokens
-                            EstimatedCost = $Resp.EstimatedCost
-                            ProcessedAt = $Resp.ProcessedAt
-                        }
-                    }
-                    else {
-                        # Generic format
-                        $Resp
+            
+            switch ($OutputFormat) {
+                "Table" {
+                    $ComparisonResults | Format-Table -AutoSize
+                }
+                "Grid" {
+                    $ComparisonResults
+                }
+                "Summary" {
+                    [PSCustomObject]@{
+                        TotalResponses = $AllResponses.Count
+                        SuccessRate = [math]::Round((($AllResponses | Where-Object Success).Count / $AllResponses.Count) * 100, 2)
+                        AverageCost = if ($AllResponses[0].EstimatedCost) {
+                            [math]::Round(($AllResponses | Where-Object EstimatedCost | Measure-Object EstimatedCost -Average).Average, 6)
+                        } else { $null }
+                        TotalCost = if ($AllResponses[0].EstimatedCost) {
+                            [math]::Round(($AllResponses | Where-Object EstimatedCost | Measure-Object EstimatedCost -Sum).Sum, 6)
+                        } else { $null }
+                        AverageTokens = if ($AllResponses[0].TotalTokens -or $AllResponses[0].TokensUsed) {
+                            [math]::Round(($AllResponses | Where-Object { $_.TotalTokens -or $_.TokensUsed } | 
+                                ForEach-Object { $_.TotalTokens -or $_.TokensUsed } | Measure-Object -Average).Average, 0)
+                        } else { $null }
+                        Models = ($AllResponses | Where-Object Model | Select-Object -ExpandProperty Model -Unique) -join ", "
+                        Types = ($AllResponses | Where-Object Type | Select-Object -ExpandProperty Type -Unique) -join ", "
                     }
                 }
-                $CsvData | Export-Csv -Path $FilePath -NoTypeInformation -Encoding UTF8
             }
         }
-        
-        Write-Host "Response(s) saved to: $FilePath" -ForegroundColor Green
-        Write-Host "  Count: $($AllResponses.Count)" -ForegroundColor Gray
-        Write-Host "  Format: $Format" -ForegroundColor Gray
-        
-        $FileInfo = Get-Item $FilePath
-        Write-Host "  Size: $([math]::Round($FileInfo.Length / 1KB, 2)) KB" -ForegroundColor Gray
+        catch {
+            Write-OpenAIError -Message "Failed to compare responses: $($_.Exception.Message)" -Exception $_.Exception -Category InvalidOperation -ErrorId "CompareResponseError"
+            return $null
+        }
     }
 }
 
-function Show-OpenAIExamples {
+function Test-OpenAIQuota {
+    <#
+    .SYNOPSIS
+    Tests current API quota and rate limits by making small test requests
+    .PARAMETER Detailed
+    Return detailed quota information
+    .EXAMPLE
+    Test-OpenAIQuota
+    .EXAMPLE
+    Test-OpenAIQuota -Detailed
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [switch]$Detailed
+    )
+    
+    $TestResults = @{}
+    
+    try {
+        # Test basic connectivity
+        $Models = Get-OpenAIModelList
+        $TestResults.BasicConnectivity = @{
+            Success = $true
+            ModelsAvailable = $Models.Count
+            Error = $null
+        }
+        
+        # Test chat endpoint with minimal request
+        try {
+            $ChatTest = Send-ChatMessage -Message "Test" -Model "gpt-4o-mini" -MaxTokens 1
+            $TestResults.ChatEndpoint = @{
+                Success = $ChatTest.Success
+                ResponseTime = if ($ChatTest.ProcessedAt) { $ChatTest.ProcessedAt } else { $null }
+                Cost = $ChatTest.EstimatedCost
+                Error = $ChatTest.Error
+            }
+        } catch {
+            $TestResults.ChatEndpoint = @{
+                Success = $false
+                Error = $_.Exception.Message
+            }
+        }
+        
+        # Test embeddings endpoint
+        try {
+            $EmbeddingTest = New-OpenAIEmbedding -Text "test" -Model "text-embedding-3-small"
+            $TestResults.EmbeddingEndpoint = @{
+                Success = $EmbeddingTest.Success
+                ResponseTime = if ($EmbeddingTest.ProcessedAt) { $EmbeddingTest.ProcessedAt } else { $null }
+                Cost = $EmbeddingTest.EstimatedCost
+                Error = $EmbeddingTest.Error
+            }
+        } catch {
+            $TestResults.EmbeddingEndpoint = @{
+                Success = $false
+                Error = $_.Exception.Message
+            }
+        }
+        
+        # Test moderation endpoint (free)
+        try {
+            $ModerationTest = Test-OpenAIModeration -Text "test"
+            $TestResults.ModerationEndpoint = @{
+                Success = $ModerationTest.Success
+                ResponseTime = if ($ModerationTest.ProcessedAt) { $ModerationTest.ProcessedAt } else { $null }
+                Error = $ModerationTest.Error
+            }
+        } catch {
+            $TestResults.ModerationEndpoint = @{
+                Success = $false
+                Error = $_.Exception.Message
+            }
+        }
+        
+        # Summary
+        $WorkingEndpoints = ($TestResults.Values | Where-Object { $_.Success }).Count
+        $TotalEndpoints = $TestResults.Count
+        
+        if ($Detailed) {
+            [PSCustomObject]@{
+                OverallStatus = if ($WorkingEndpoints -eq $TotalEndpoints) { "All Systems Operational" } 
+                               elseif ($WorkingEndpoints -gt 0) { "Partial Service Available" }
+                               else { "Service Unavailable" }
+                WorkingEndpoints = "$WorkingEndpoints/$TotalEndpoints"
+                TestedAt = Get-Date
+                Details = $TestResults
+                EstimatedTestCost = ($TestResults.Values | Where-Object { $_.Cost } | ForEach-Object { $_.Cost } | Measure-Object -Sum).Sum
+            }
+        } else {
+            [PSCustomObject]@{
+                Status = if ($WorkingEndpoints -eq $TotalEndpoints) { "✅ All Systems Operational" } 
+                        elseif ($WorkingEndpoints -gt 0) { "⚠️ Partial Service Available" }
+                        else { "❌ Service Unavailable" }
+                WorkingEndpoints = "$WorkingEndpoints/$TotalEndpoints"
+                BasicConnectivity = if ($TestResults.BasicConnectivity.Success) { "✅" } else { "❌" }
+                ChatAPI = if ($TestResults.ChatEndpoint.Success) { "✅" } else { "❌" }
+                EmbeddingAPI = if ($TestResults.EmbeddingEndpoint.Success) { "✅" } else { "❌" }
+                ModerationAPI = if ($TestResults.ModerationEndpoint.Success) { "✅" } else { "❌" }
+                TestedAt = Get-Date
+            }
+        }
+    }
+    catch {
+        Write-OpenAIError -Message "Failed to test quota: $($_.Exception.Message)" -Exception $_.Exception -Category ResourceUnavailable -ErrorId "QuotaTestError"
+        
+        [PSCustomObject]@{
+            Status = "❌ Test Failed"
+            Error = $_.Exception.Message
+            TestedAt = Get-Date
+        }
+    }
+}
+
+function Show-OpenAIExample {
     <#
     .SYNOPSIS
     Displays comprehensive usage examples for the PSOpenAI module
     .EXAMPLE
-    Show-OpenAIExamples
+    Show-OpenAIExample
     #>
     
     Write-Host @"

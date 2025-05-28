@@ -55,88 +55,55 @@ function Test-OpenAIModeration {
                     $Result = $Response.results[$j]
                     $ProcessedCount++
                     
-                    # Calculate risk scores and analysis
-                    $CategoryScores = @{
-                        Hate = $Result.category_scores.hate
-                        HateThreatening = $Result.category_scores.'hate/threatening'
-                        Harassment = $Result.category_scores.harassment
-                        HarassmentThreatening = $Result.category_scores.'harassment/threatening'
-                        SelfHarm = $Result.category_scores.'self-harm'
-                        SelfHarmIntent = $Result.category_scores.'self-harm/intent'
-                        SelfHarmInstructions = $Result.category_scores.'self-harm/instructions'
-                        Sexual = $Result.category_scores.sexual
-                        SexualMinors = $Result.category_scores.'sexual/minors'
-                        Violence = $Result.category_scores.violence
-                        ViolenceGraphic = $Result.category_scores.'violence/graphic'
-                    }
-                    
-                    $Categories = @{
-                        Hate = $Result.categories.hate
-                        HateThreatening = $Result.categories.'hate/threatening'
-                        Harassment = $Result.categories.harassment
-                        HarassmentThreatening = $Result.categories.'harassment/threatening'
-                        SelfHarm = $Result.categories.'self-harm'
-                        SelfHarmIntent = $Result.categories.'self-harm/intent'
-                        SelfHarmInstructions = $Result.categories.'self-harm/instructions'
-                        Sexual = $Result.categories.sexual
-                        SexualMinors = $Result.categories.'sexual/minors'
-                        Violence = $Result.categories.violence
-                        ViolenceGraphic = $Result.categories.'violence/graphic'
-                    }
-                    
-                    # Calculate additional analytics
-                    $MaxScore = ($CategoryScores.Values | Measure-Object -Maximum).Maximum
-                    $AvgScore = ($CategoryScores.Values | Measure-Object -Average).Average
-                    $FlaggedCategories = $Categories.GetEnumerator() | Where-Object { $_.Value -eq $true } | ForEach-Object { $_.Key }
-                    $HighRiskCategories = $CategoryScores.GetEnumerator() | Where-Object { $_.Value -gt 0.5 } | ForEach-Object { $_.Key }
-                    
                     $AllResults += [PSCustomObject]@{
                         # Input Information
                         Text = $CurrentBatch[$j]
                         TextLength = $CurrentBatch[$j].Length
-                        TextWordCount = ($CurrentBatch[$j] -split '\s+').Count
-                        
-                        # Primary Moderation Results
-                        Flagged = $Result.flagged
-                        FlaggedCategories = $FlaggedCategories
-                        FlaggedCategoryCount = $FlaggedCategories.Count
-                        
-                        # Detailed Category Analysis
-                        Categories = [PSCustomObject]$Categories
-                        CategoryScores = [PSCustomObject]$CategoryScores
-                        
-                        # Risk Analysis
-                        MaxRiskScore = [math]::Round($MaxScore, 4)
-                        AverageRiskScore = [math]::Round($AvgScore, 4)
-                        HighRiskCategories = $HighRiskCategories
-                        HighRiskCategoryCount = $HighRiskCategories.Count
-                        
-                        # Specific Risk Categories (for easy filtering)
-                        HasHate = $Result.categories.hate
-                        HasHarassment = $Result.categories.harassment
-                        HasSelfHarm = ($Result.categories.'self-harm' -or $Result.categories.'self-harm/intent' -or $Result.categories.'self-harm/instructions')
-                        HasSexual = ($Result.categories.sexual -or $Result.categories.'sexual/minors')
-                        HasViolence = ($Result.categories.violence -or $Result.categories.'violence/graphic')
-                        HasThreatening = ($Result.categories.'hate/threatening' -or $Result.categories.'harassment/threatening')
-                        HasMinors = $Result.categories.'sexual/minors'
-                        
-                        # Risk Level Classification
-                        RiskLevel = if ($Result.flagged) { 
-                            if ($MaxScore -gt 0.9) { "Critical" }
-                            elseif ($MaxScore -gt 0.7) { "High" }
-                            elseif ($MaxScore -gt 0.5) { "Medium" }
-                            else { "Low" }
-                        } else { "Safe" }
-                        
-                        # Model & Processing Information
                         Model = $Model
+                        
+                        # Moderation Results
+                        Flagged = $Result.flagged
+                        Categories = $Result.categories
+                        CategoryScores = $Result.category_scores
+                        
+                        # Individual Category Results
+                        Hate = $Result.categories.hate
+                        HateScore = [math]::Round($Result.category_scores.hate, 4)
+                        HateThreatening = $Result.categories."hate/threatening"
+                        HateThreateningScore = [math]::Round($Result.category_scores."hate/threatening", 4)
+                        Harassment = $Result.categories.harassment
+                        HarassmentScore = [math]::Round($Result.category_scores.harassment, 4)
+                        HarassmentThreatening = $Result.categories."harassment/threatening"
+                        HarassmentThreateningScore = [math]::Round($Result.category_scores."harassment/threatening", 4)
+                        SelfHarm = $Result.categories."self-harm"
+                        SelfHarmScore = [math]::Round($Result.category_scores."self-harm", 4)
+                        SelfHarmIntent = $Result.categories."self-harm/intent"
+                        SelfHarmIntentScore = [math]::Round($Result.category_scores."self-harm/intent", 4)
+                        SelfHarmInstructions = $Result.categories."self-harm/instructions"
+                        SelfHarmInstructionsScore = [math]::Round($Result.category_scores."self-harm/instructions", 4)
+                        Sexual = $Result.categories.sexual
+                        SexualScore = [math]::Round($Result.category_scores.sexual, 4)
+                        SexualMinors = $Result.categories."sexual/minors"
+                        SexualMinorsScore = [math]::Round($Result.category_scores."sexual/minors", 4)
+                        Violence = $Result.categories.violence
+                        ViolenceScore = [math]::Round($Result.category_scores.violence, 4)
+                        ViolenceGraphic = $Result.categories."violence/graphic"
+                        ViolenceGraphicScore = [math]::Round($Result.category_scores."violence/graphic", 4)
+                        
+                        # Analysis
+                        HighestRiskCategory = ($Result.category_scores.PSObject.Properties | Sort-Object Value -Descending | Select-Object -First 1).Name
+                        HighestRiskScore = [math]::Round(($Result.category_scores.PSObject.Properties | Sort-Object Value -Descending | Select-Object -First 1).Value, 4)
+                        TotalRiskScore = [math]::Round(($Result.category_scores.PSObject.Properties.Value | Measure-Object -Sum).Sum, 4)
+                        FlaggedCategoriesCount = ($Result.categories.PSObject.Properties | Where-Object Value -eq $true).Count
+                        FlaggedCategories = ($Result.categories.PSObject.Properties | Where-Object Value -eq $true | Select-Object -ExpandProperty Name) -join ", "
+                        
+                        # Processing Information
                         ProcessedAt = Get-Date
                         Success = $true
                         Error = $null
                         
                         # Batch Information
                         BatchIndex = [math]::Floor($i / $BatchSize)
-                        BatchSize = $CurrentBatch.Count
                         ItemInBatch = $j
                         GlobalIndex = $ProcessedCount - 1
                         TotalItems = $TextBatch.Count
@@ -144,22 +111,13 @@ function Test-OpenAIModeration {
                         # Pipeline Information
                         PipelineIndex = [Array]::IndexOf($TextBatch, $CurrentBatch[$j])
                         
-                        # Compliance & Action Recommendations
-                        RequiresReview = ($Result.flagged -or $MaxScore -gt 0.3)
-                        RequiresImmedateAction = ($Result.flagged -and $MaxScore -gt 0.8)
-                        SuggestedAction = if ($Result.flagged) {
-                            if ($MaxScore -gt 0.9) { "Block/Remove" }
-                            elseif ($MaxScore -gt 0.7) { "Review/Warn" }
-                            elseif ($MaxScore -gt 0.5) { "Monitor" }
-                            else { "Flag for Review" }
-                        } else { "Allow" }
-                        
-                        # Helper Properties for Filtering
-                        IsClean = (-not $Result.flagged -and $MaxScore -lt 0.1)
-                        IsProblematic = ($Result.flagged -or $MaxScore -gt 0.5)
-                        IsBorderline = (-not $Result.flagged -and $MaxScore -gt 0.2 -and $MaxScore -lt 0.5)
-                        IsLongText = ($CurrentBatch[$j].Length -gt 500)
-                        IsShortText = ($CurrentBatch[$j].Length -lt 50)
+                        # Compliance Helpers
+                        IsCompliant = (-not $Result.flagged)
+                        RequiresReview = ($Result.flagged -or ([math]::Round(($Result.category_scores.PSObject.Properties.Value | Measure-Object -Sum).Sum, 4) -gt 0.5))
+                        SafetyLevel = if (-not $Result.flagged -and $TotalRiskScore -lt 0.1) { "Safe" } 
+                                     elseif (-not $Result.flagged -and $TotalRiskScore -lt 0.5) { "Low Risk" }
+                                     elseif (-not $Result.flagged) { "Medium Risk" }
+                                     else { "High Risk" }
                     }
                 }
             }
@@ -171,16 +129,13 @@ function Test-OpenAIModeration {
                         # Input Information
                         Text = $FailedText
                         TextLength = $FailedText.Length
-                        TextWordCount = ($FailedText -split '\s+').Count
+                        Model = $Model
                         
                         # Error Information
                         Flagged = $null
                         Success = $false
                         Error = $_.Exception.Message
                         ErrorType = $_.Exception.GetType().Name
-                        
-                        # Configuration (for troubleshooting)
-                        Model = $Model
                         
                         # Processing Information
                         ProcessedAt = Get-Date
@@ -192,11 +147,6 @@ function Test-OpenAIModeration {
                         
                         # Pipeline Information
                         PipelineIndex = [Array]::IndexOf($TextBatch, $FailedText)
-                        
-                        # Safe defaults for error cases
-                        RiskLevel = "Unknown"
-                        RequiresReview = $true  # Err on the side of caution
-                        SuggestedAction = "Manual Review Required"
                     }
                 }
             }

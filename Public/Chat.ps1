@@ -64,6 +64,11 @@ function Invoke-OpenAIChat {
         [string]$User = $null
     )
     
+    if (-not $Global:OpenAIConfig.ApiKey) {
+        Write-Warning "OpenAI API key not configured. Use Set-OpenAIKey first."
+        return $null
+    }
+    
     $Body = @{
         model = $Model
         messages = $Messages

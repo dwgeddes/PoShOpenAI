@@ -16,6 +16,7 @@ function Start-OpenAIRun {
     .PARAMETER Metadata
     Additional metadata
     #>
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ThreadId,
@@ -39,7 +40,7 @@ function Start-OpenAIRun {
     return Invoke-OpenAIRequest -Endpoint "threads/$ThreadId/runs" -Body $Body
 }
 
-function Get-OpenAIRuns {
+function Get-OpenAIRunList {
     <#
     .SYNOPSIS
     Lists runs for a thread
@@ -54,6 +55,7 @@ function Get-OpenAIRuns {
     .PARAMETER Before
     Cursor for pagination
     #>
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ThreadId,
@@ -80,6 +82,7 @@ function Get-OpenAIRun {
     .PARAMETER RunId
     ID of the run
     #>
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ThreadId,
@@ -101,6 +104,7 @@ function Update-OpenAIRun {
     .PARAMETER Metadata
     Updated metadata
     #>
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ThreadId,
@@ -125,6 +129,7 @@ function Stop-OpenAIRun {
     .PARAMETER RunId
     ID of the run to cancel
     #>
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ThreadId,
@@ -135,10 +140,10 @@ function Stop-OpenAIRun {
     return Invoke-OpenAIRequest -Endpoint "threads/$ThreadId/runs/$RunId/cancel" -Method "POST"
 }
 
-function Submit-OpenAIToolOutputs {
+function Submit-OpenAIToolOutput {
     <#
     .SYNOPSIS
-    Submits tool outputs for a run
+    Submits tool output to continue a run
     .PARAMETER ThreadId
     ID of the thread
     .PARAMETER RunId
@@ -146,6 +151,7 @@ function Submit-OpenAIToolOutputs {
     .PARAMETER ToolOutputs
     Array of tool outputs
     #>
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ThreadId,
@@ -162,7 +168,7 @@ function Submit-OpenAIToolOutputs {
     return Invoke-OpenAIRequest -Endpoint "threads/$ThreadId/runs/$RunId/submit_tool_outputs" -Body $Body
 }
 
-function Get-OpenAIRunSteps {
+function Get-OpenAIRunStepList {
     <#
     .SYNOPSIS
     Lists run steps
@@ -179,6 +185,7 @@ function Get-OpenAIRunSteps {
     .PARAMETER Before
     Cursor for pagination
     #>
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ThreadId,
@@ -209,6 +216,7 @@ function Get-OpenAIRunStep {
     .PARAMETER StepId
     ID of the step
     #>
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ThreadId,

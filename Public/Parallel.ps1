@@ -55,7 +55,7 @@ function Invoke-OpenAIParallelChat {
             if ($Global:OpenAIConfig -and $Global:OpenAIConfig.ApiKey) {
                 $PlainApiKey = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Global:OpenAIConfig.ApiKey))
             } else {
-                throw "OpenAI API key not configured. Please run Set-OpenAIKey first."
+                throw "OpenAI API key not configured. Use Set-OpenAIKey first."
             }
         } catch {
             Write-Error "Failed to retrieve API key: $($_.Exception.Message)"
@@ -142,29 +142,28 @@ function Invoke-OpenAIParallelChat {
             # Calculate summary statistics
             $SuccessfulResults = $Results | Where-Object { $_.Success }
             $FailedResults = $Results | Where-Object { -not $_.Success }
-            $TotalTokens = ($SuccessfulResults | Measure-Object -Property TotalTokens -Sum).Sum
-            
-            Write-Host "Parallel processing completed: $($SuccessfulResults.Count) successful, $($FailedResults.Count) failed" -ForegroundColor Green
-            
-            # Return comprehensive results
-            [PSCustomObject]@{
-                Results = $Results
-                Summary = [PSCustomObject]@{
-                    TotalProcessed = $Results.Count
-                    Successful = $SuccessfulResults.Count
-                    Failed = $FailedResults.Count
-                    TotalTokens = $TotalTokens
-                    Model = $Model
-                    ThrottleLimit = $ThrottleLimit
-                    ProcessedAt = Get-Date
+            $TotalCost = ($SuccessfulResults | ForEach-Object {
+                switch ($_.Model) {
+                    "gpt-4o" { $_.PromptTokens * 0.000005 + $_.CompletionTokens * 0.000015 }
+                    "gpt-4o-mini" { $_.PromptTokens * 0.00000015 + $_.CompletionTokens * 0.0000006 }
+                    "gpt-4" { $_.PromptTokens * 0.00003 + $_.CompletionTokens * 0.00006 }
+                    "gpt-4-turbo" { $_.PromptTokens * 0.00001 + $_.CompletionTokens * 0.00003 }
+                    "gpt-3.5-turbo" { $_.PromptTokens * 0.0000005 + $_.CompletionTokens * 0.0000015 }
+                    default { 0 }
                 }
-            }
+            } | Measure-Object -Sum).Sum
+            
+            Write-Host "Parallel processing complete:" -ForegroundColor Green
+            Write-Host "  Successful: $($SuccessfulResults.Count)" -ForegroundColor Cyan
+            Write-Host "  Failed: $($FailedResults.Count)" -ForegroundColor $(if ($FailedResults.Count -gt 0) { 'Red' } else { 'Cyan' })"
+            Write-Host "  Total cost: `$$([math]::Round($TotalCost, 6))" -ForegroundColor Yellow
+            
+            return $Results
         }
         finally {
-            # Clear plain text API key from memory
+            # Clear API key from memory
             if ($PlainApiKey) {
-                $PlainApiKey = $null
-                [System.GC]::Collect()
+                Clear-Variable -Name PlainApiKey -Force -ErrorAction SilentlyContinue
             }
         }
     }
@@ -214,7 +213,7 @@ function Invoke-OpenAIParallelEmbedding {
             if ($Global:OpenAIConfig -and $Global:OpenAIConfig.ApiKey) {
                 $PlainApiKey = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($Global:OpenAIConfig.ApiKey))
             } else {
-                throw "OpenAI API key not configured. Please run Set-OpenAIKey first."
+                throw "OpenAI API key not configured. Use Set-OpenAIKey first."
             }
         } catch {
             Write-Error "Failed to retrieve API key: $($_.Exception.Message)"
@@ -228,24 +227,29 @@ function Invoke-OpenAIParallelEmbedding {
     
     end {
         try {
-            # Split into batches for efficient API usage
-            $Batches = for ($i = 0; $i -lt $TextBatch.Count; $i += $BatchSize) {
-                , $TextBatch[$i..([Math]::Min($i + $BatchSize - 1, $TextBatch.Count - 1))]
+            Write-Host "Processing $($TextBatch.Count) texts for embeddings in parallel" -ForegroundColor Cyan
+            
+            # Split into batches for API efficiency
+            $Batches = @()
+            for ($i = 0; $i -lt $TextBatch.Count; $i += $BatchSize) {
+                $CurrentBatch = $TextBatch[$i..([Math]::Min($i + $BatchSize - 1, $TextBatch.Count - 1))]
+                $Batches += ,@{
+                    Texts = $CurrentBatch
+                    Index = [math]::Floor($i / $BatchSize)
+                }
             }
             
-            Write-Host "Processing $($TextBatch.Count) texts in $($Batches.Count) batches with throttle limit $ThrottleLimit" -ForegroundColor Cyan
-            
+            # Process batches in parallel
             $AllResults = $Batches | ForEach-Object -Parallel {
-                # Import variables into parallel runspace
                 $Config = $using:Global:OpenAIConfig
                 $PlainApiKey = $using:PlainApiKey
                 $Model = $using:Model
-                $CurrentBatch = $_
+                $CurrentBatch = $_.Texts
+                $BatchIndex = $_.Index
                 
                 $Body = @{
                     model = $Model
                     input = $CurrentBatch
-                    encoding_format = "float"
                 }
                 
                 try {
@@ -268,12 +272,22 @@ function Invoke-OpenAIParallelEmbedding {
                             Text = $CurrentBatch[$j]
                             Embedding = $Response.data[$j].embedding
                             Model = $Model
-                            Dimensions = $Response.data[$j].embedding.Count
                             Index = $Response.data[$j].index
+                            Dimensions = $Response.data[$j].embedding.Count
                             ProcessedAt = Get-Date
                             ThreadId = [Threading.Thread]::CurrentThread.ManagedThreadId
                             Success = $true
                             Error = $null
+                            BatchIndex = $BatchIndex
+                            ItemInBatch = $j
+                            TotalTokens = if ($Response.usage) { [math]::Round($Response.usage.total_tokens / $Response.data.Count) } else { $null }
+                            EstimatedCost = if ($Response.usage) {
+                                switch ($Model) {
+                                    "text-embedding-3-small" { [math]::Round(($Response.usage.total_tokens * 0.00000002) / $Response.data.Count, 8) }
+                                    "text-embedding-3-large" { [math]::Round(($Response.usage.total_tokens * 0.00000013) / $Response.data.Count, 8) }
+                                    "text-embedding-ada-002" { [math]::Round(($Response.usage.total_tokens * 0.0000001) / $Response.data.Count, 8) }
+                                }
+                            } else { $null }
                         }
                     }
                 }
@@ -288,39 +302,28 @@ function Invoke-OpenAIParallelEmbedding {
                             ProcessedAt = Get-Date
                             ThreadId = [Threading.Thread]::CurrentThread.ManagedThreadId
                             Success = $false
-                            Dimensions = 0
+                            BatchIndex = $BatchIndex
+                            EstimatedCost = 0
                         }
                     }
                 }
             } -ThrottleLimit $ThrottleLimit
             
-            # Calculate summary statistics
             $SuccessfulResults = $AllResults | Where-Object { $_.Success }
             $FailedResults = $AllResults | Where-Object { -not $_.Success }
+            $TotalCost = ($SuccessfulResults.EstimatedCost | Measure-Object -Sum).Sum
             
-            Write-Host "Parallel embedding completed: $($SuccessfulResults.Count) successful, $($FailedResults.Count) failed" -ForegroundColor Green
+            Write-Host "Parallel embedding processing complete:" -ForegroundColor Green
+            Write-Host "  Successful: $($SuccessfulResults.Count)" -ForegroundColor Cyan
+            Write-Host "  Failed: $($FailedResults.Count)" -ForegroundColor $(if ($FailedResults.Count -gt 0) { 'Red' } else { 'Cyan' })"
+            Write-Host "  Total cost: `$$([math]::Round($TotalCost, 8))" -ForegroundColor Yellow
             
-            # Return comprehensive results
-            [PSCustomObject]@{
-                Results = $AllResults
-                Summary = [PSCustomObject]@{
-                    TotalProcessed = $AllResults.Count
-                    Successful = $SuccessfulResults.Count
-                    Failed = $FailedResults.Count
-                    Model = $Model
-                    ThrottleLimit = $ThrottleLimit
-                    BatchSize = $BatchSize
-                    BatchCount = $Batches.Count
-                    Dimensions = if ($SuccessfulResults) { $SuccessfulResults[0].Dimensions } else { 0 }
-                    ProcessedAt = Get-Date
-                }
-            }
+            return $AllResults
         }
         finally {
-            # Clear plain text API key from memory
+            # Clear API key from memory
             if ($PlainApiKey) {
-                $PlainApiKey = $null
-                [System.GC]::Collect()
+                Clear-Variable -Name PlainApiKey -Force -ErrorAction SilentlyContinue
             }
         }
     }

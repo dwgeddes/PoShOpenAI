@@ -1,19 +1,19 @@
 #region Example Usage Functions
 
-function Show-OpenAIExamples {
+function Show-OpenAIExample {
     <#
     .SYNOPSIS
     Displays comprehensive usage examples for the PSOpenAI module with real-world scenarios
     .PARAMETER Category
     Show examples for a specific category (Chat, Images, Audio, Embeddings, etc.)
     .EXAMPLE
-    Show-OpenAIExamples
+    Show-OpenAIExample
     .EXAMPLE
-    Show-OpenAIExamples -Category "Chat"
+    Show-OpenAIExample -Category "Chat"
     #>
     param(
         [Parameter()]
-        [ValidateSet("All", "Setup", "Chat", "Images", "Audio", "Embeddings", "Moderation", "Parallel", "Analytics", "Advanced")]
+        [ValidateSet("All", "Setup", "Chat", "Images", "Audio", "Embeddings", "Moderation", "Parallel", "Assistants", "Analytics", "Advanced")]
         [string]$Category = "All"
     )
     
@@ -188,6 +188,44 @@ function Show-OpenAIExamples {
 "@ -ForegroundColor Cyan
     }
     
+    if ($Category -eq "All" -or $Category -eq "Assistants") {
+        Write-Host @"
+
+🤖 ASSISTANTS & VISION
+======================
+"@ -ForegroundColor Yellow
+        
+        Write-Host @"
+29. Create a vision-capable assistant:
+    `$assistant = New-VisionAssistant -Name "Image Analyzer" -Instructions "You are an expert at analyzing images."
+
+30. Simple text query to assistant:
+    `$result = Invoke-OpenAIAssistant -AssistantId "asst_123" -Message "What is PowerShell?"
+
+31. Vision analysis with single image:
+    `$result = Invoke-OpenAIAssistant -AssistantId "asst_123" -Message "What do you see?" -ImagePaths @("photo.jpg")
+
+32. Compare multiple images:
+    `$result = Invoke-OpenAIAssistant -AssistantId "asst_123" -Message "Compare these images" -ImagePaths @("img1.jpg", "img2.png")
+
+33. Interactive assistant conversation:
+    Start-AssistantConversation -AssistantId "asst_123"
+
+34. Batch image processing with assistant:
+    Get-ChildItem "*.jpg" | ForEach-Object {
+        Invoke-OpenAIAssistant -AssistantId "asst_123" -Message "Briefly describe this image" -ImagePaths @(`$_.FullName)
+    }
+
+35. Advanced assistant with response analysis:
+    `$result = Invoke-OpenAIAssistant -AssistantId "asst_123" -Message "Analyze composition" -ImagePaths @("photo.jpg")
+    if (`$result.Success) {
+        Write-Host "Vision support: `$(`$result.SupportsVision)"
+        Write-Host "Processing time: `$(`$result.ProcessingTime)"
+    }
+
+"@ -ForegroundColor Cyan
+    }
+    
     if ($Category -eq "All" -or $Category -eq "Analytics") {
         Write-Host @"
 
@@ -196,20 +234,20 @@ function Show-OpenAIExamples {
 "@ -ForegroundColor Yellow
         
         Write-Host @"
-29. Comprehensive cost analysis:
+36. Comprehensive cost analysis:
     `$chat_results = Get-Content "queries.txt" | Send-ChatMessage -Model "gpt-4o"
     `$total_cost = (`$chat_results | Measure-Object EstimatedCost -Sum).Sum
     `$avg_tokens = (`$chat_results | Measure-Object TotalTokens -Average).Average
 
-30. Response quality analysis:
+37. Response quality analysis:
     `$results = Get-Content "questions.txt" | Send-ChatMessage
     `$complete = `$results | Where-Object FinishReason -eq "stop"
     `$truncated = `$results | Where-Object FinishReason -eq "length"
 
-31. Token efficiency analysis:
+38. Token efficiency analysis:
     `$results | Select-Object Input, Response, @{N='Efficiency';E={`$_.Response.Length/`$_.TotalTokens}}
 
-32. Model performance comparison:
+39. Model performance comparison:
     `$gpt4_results = `$questions | Send-ChatMessage -Model "gpt-4o"
     `$gpt4mini_results = `$questions | Send-ChatMessage -Model "gpt-4o-mini"
     # Compare costs and quality
@@ -225,27 +263,27 @@ function Show-OpenAIExamples {
 "@ -ForegroundColor Yellow
         
         Write-Host @"
-33. Multi-modal content creation:
+40. Multi-modal content creation:
     `$story = Send-ChatMessage -Message "Write a short story about space"
     `$image = New-OpenAIImage -Prompt "Illustrate: `$(`$story.Response.Substring(0,100))"
     `$audio = ConvertTo-OpenAISpeech -Text `$story.Response -Voice "nova"
 
-34. Content pipeline with validation:
+41. Content pipeline with validation:
     `$content = Get-Content "drafts.txt" | Send-ChatMessage -SystemMessage "Improve this text"
     `$moderated = `$content | Test-OpenAIModeration
     `$safe_content = `$moderated.Results | Where-Object {-not `$_.Flagged}
 
-35. Automated documentation generation:
+42. Automated documentation generation:
     `$code_files = Get-ChildItem "*.ps1" | Get-Content -Raw
     `$docs = `$code_files | Send-ChatMessage -SystemMessage "Generate documentation for this code"
 
-36. Intelligent data processing:
+43. Intelligent data processing:
     `$raw_data = Import-Csv "data.csv"
     `$processed = `$raw_data | ForEach-Object {
         Send-ChatMessage -Message "Analyze this record: `$(`$_ | ConvertTo-Json)"
     }
 
-37. Save comprehensive results:
+44. Save comprehensive results:
     `$all_results | Save-OpenAIResponse -FilePath "analysis_results.json" -IncludeMetadata
     `$all_results | Save-OpenAIResponse -FilePath "summary.csv" -Format csv
 
