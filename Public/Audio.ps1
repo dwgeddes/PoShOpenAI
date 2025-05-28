@@ -23,7 +23,7 @@ function ConvertTo-OpenAISpeech {
     .EXAMPLE
     Get-Content script.txt | ConvertTo-OpenAISpeech -Voice "alloy" -Speed 1.2
     #>
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param(
         [Parameter(Mandatory = $true, ValueFromPipeline = $true, ValueFromPipelineByPropertyName = $true, Position = 0)]
         [string[]]$Text,
@@ -53,86 +53,79 @@ function ConvertTo-OpenAISpeech {
     
     begin {
         $ProcessedCount = 0
-        
-        # Ensure output directory exists
         if (-not (Test-Path $OutputDirectory)) {
-            New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+            if ($PSCmdlet.ShouldProcess($OutputDirectory, 'Create output directory')) {
+                New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+            }
         }
     }
     
     process {
         foreach ($TextItem in $Text) {
-            if (-not $Global:OpenAIConfig.ApiKey) {
-                throw [System.InvalidOperationException]::new("OpenAI API key not configured. Use Set-OpenAIKey first.")
-            }
-            
-            $Uri = "$($Global:OpenAIConfig.BaseUrl)/audio/speech"
-            $Headers = @{
-                "Authorization" = "Bearer $($Global:OpenAIConfig.ApiKey)"
-                "Content-Type" = "application/json"
-            }
-            
-            if ($Global:OpenAIConfig.Organization) {
-                $Headers["OpenAI-Organization"] = $Global:OpenAIConfig.Organization
-            }
-            
-            $Body = @{
-                model = $Model
-                input = $TextItem
-                voice = $Voice
-                response_format = $ResponseFormat
-                speed = $Speed
-            } | ConvertTo-Json -Compress
-            
-            try {
-                # Generate unique filename for multiple texts
-                $FileExtension = ".$ResponseFormat"
-                $UniqueFileName = if ($Text.Count -gt 1) {
-                    "$OutputPath`_$ProcessedCount$FileExtension"
-                } else {
-                    "$OutputPath$FileExtension" 
+            $TargetFile = Join-Path $OutputDirectory (if ($Text.Count -gt 1) {"$OutputPath`_$ProcessedCount.$ResponseFormat"} else {"$OutputPath.$ResponseFormat"})
+            if ($PSCmdlet.ShouldProcess($TargetFile, 'Generate speech and save to file')) {
+                if (-not $Global:OpenAIConfig.ApiKey) {
+                    throw [System.InvalidOperationException]::new("OpenAI API key not configured. Use Set-OpenAIKey first.")
                 }
                 
-                $FullOutputPath = Join-Path $OutputDirectory $UniqueFileName
-                
-                # Generate speech and save to file
-                Invoke-RestMethod -Uri $Uri -Method POST -Headers $Headers -Body $Body -OutFile $FullOutputPath -TimeoutSec $Global:OpenAIConfig.TimeoutSec
-                
-                $FileInfo = Get-Item $FullOutputPath
-                
-                [PSCustomObject]@{
-                    InputText = $TextItem
-                    OutputPath = $FullOutputPath
-                    FileName = $FileInfo.Name
-                    FileSizeBytes = $FileInfo.Length
-                    Voice = $Voice
-                    Model = $Model
-                    ResponseFormat = $ResponseFormat
-                    Speed = $Speed
-                    ProcessedAt = Get-Date
-                    Index = $ProcessedCount
+                $Uri = "$($Global:OpenAIConfig.BaseUrl)/audio/speech"
+                $Headers = @{
+                    "Authorization" = "Bearer $($Global:OpenAIConfig.ApiKey)"
+                    "Content-Type" = "application/json"
                 }
                 
-                $ProcessedCount++
-            }
-            catch [Microsoft.PowerShell.Commands.HttpResponseException] {
-                $ErrorMessage = if ($_.ErrorDetails.Message) {
-                    ($_.ErrorDetails.Message | ConvertFrom-Json).error.message
-                } else {
-                    $_.Exception.Message
+                if ($Global:OpenAIConfig.Organization) {
+                    $Headers["OpenAI-Organization"] = $Global:OpenAIConfig.Organization
                 }
                 
-                [PSCustomObject]@{
-                    InputText = $TextItem
-                    OutputPath = $null
-                    Error = $ErrorMessage
-                    Voice = $Voice
-                    Model = $Model
-                    ProcessedAt = Get-Date
-                    Index = $ProcessedCount
-                }
+                $Body = @{
+                    model = $Model
+                    input = $TextItem
+                    voice = $Voice
+                    response_format = $ResponseFormat
+                    speed = $Speed
+                } | ConvertTo-Json -Compress
                 
-                $ProcessedCount++
+                try {
+                    # Generate speech and save to file
+                    Invoke-RestMethod -Uri $Uri -Method POST -Headers $Headers -Body $Body -OutFile $TargetFile -TimeoutSec $Global:OpenAIConfig.TimeoutSec
+                    
+                    $FileInfo = Get-Item $TargetFile
+                    
+                    [PSCustomObject]@{
+                        InputText = $TextItem
+                        OutputPath = $TargetFile
+                        FileName = $FileInfo.Name
+                        FileSizeBytes = $FileInfo.Length
+                        Voice = $Voice
+                        Model = $Model
+                        ResponseFormat = $ResponseFormat
+                        Speed = $Speed
+                        ProcessedAt = Get-Date
+                        Index = $ProcessedCount
+                    }
+                    
+                    $ProcessedCount++
+                }
+                catch [Microsoft.PowerShell.Commands.HttpResponseException] {
+                    $ErrorMessage = if ($_.ErrorDetails.Message) {
+                        ($_.ErrorDetails.Message | ConvertFrom-Json).error.message
+                    } else {
+                        $_.Exception.Message
+                    }
+                    
+                    [PSCustomObject]@{
+                        InputText = $TextItem
+                        OutputPath = $null
+                        Error = $ErrorMessage
+                        Voice = $Voice
+                        Model = $Model
+                        ProcessedAt = Get-Date
+                        Index = $ProcessedCount
+                    }
+                    
+                    $ProcessedCount++
+                }
             }
         }
     }
@@ -153,7 +146,7 @@ function ConvertFrom-OpenAISpeech {
     .PARAMETER Temperature
     Temperature for randomness
     #>
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
     param(
         [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
         [ValidateScript({Test-Path $_ -PathType Leaf})]
@@ -169,62 +162,64 @@ function ConvertFrom-OpenAISpeech {
     
     process {
         foreach ($Path in $AudioPath) {
-            if (-not $Global:OpenAIConfig.ApiKey) {
-                throw [System.InvalidOperationException]::new("OpenAI API key not configured. Use Set-OpenAIKey first.")
-            }
-            
-            $Uri = "$($Global:OpenAIConfig.BaseUrl)/audio/transcriptions"
-            $Headers = @{
-                "Authorization" = "Bearer $($Global:OpenAIConfig.ApiKey)"
-            }
-            
-            if ($Global:OpenAIConfig.Organization) {
-                $Headers["OpenAI-Organization"] = $Global:OpenAIConfig.Organization
-            }
-            
-            try {
-                $FileItem = Get-Item $Path
-                $Form = @{
-                    file = $FileItem
-                    model = $Model
-                    response_format = $ResponseFormat
-                    temperature = $Temperature
+            if ($PSCmdlet.ShouldProcess($Path, 'Transcribe audio file')) {
+                if (-not $Global:OpenAIConfig.ApiKey) {
+                    throw [System.InvalidOperationException]::new("OpenAI API key not configured. Use Set-OpenAIKey first.")
                 }
                 
-                if ($Language) {
-                    $Form.language = $Language
+                $Uri = "$($Global:OpenAIConfig.BaseUrl)/audio/transcriptions"
+                $Headers = @{
+                    "Authorization" = "Bearer $($Global:OpenAIConfig.ApiKey)"
                 }
                 
-                $Response = Invoke-RestMethod -Uri $Uri -Method POST -Form $Form -Headers $Headers -TimeoutSec $Global:OpenAIConfig.TimeoutSec
+                if ($Global:OpenAIConfig.Organization) {
+                    $Headers["OpenAI-Organization"] = $Global:OpenAIConfig.Organization
+                }
                 
-                # Return structured output based on response format
-                if ($ResponseFormat -eq "json" -or $ResponseFormat -eq "verbose_json") {
-                    [PSCustomObject]@{
-                        AudioFile = $Path
-                        Text = $Response.text
-                        Language = if ($Response.language) { $Response.language } else { $Language }
-                        Duration = if ($Response.duration) { $Response.duration } else { $null }
-                        Segments = if ($Response.segments) { $Response.segments } else { $null }
-                        Model = $Model
-                        ResponseFormat = $ResponseFormat
+                try {
+                    $FileItem = Get-Item $Path
+                    $Form = @{
+                        file = $FileItem
+                        model = $Model
+                        response_format = $ResponseFormat
+                        temperature = $Temperature
                     }
-                } else {
-                    # For text, srt, vtt formats, return the raw response
-                    [PSCustomObject]@{
-                        AudioFile = $Path
-                        Content = $Response
-                        Model = $Model
-                        ResponseFormat = $ResponseFormat
+                    
+                    if ($Language) {
+                        $Form.language = $Language
+                    }
+                    
+                    $Response = Invoke-RestMethod -Uri $Uri -Method POST -Form $Form -Headers $Headers -TimeoutSec $Global:OpenAIConfig.TimeoutSec
+                    
+                    # Return structured output based on response format
+                    if ($ResponseFormat -eq "json" -or $ResponseFormat -eq "verbose_json") {
+                        [PSCustomObject]@{
+                            AudioFile = $Path
+                            Text = $Response.text
+                            Language = if ($Response.language) { $Response.language } else { $Language }
+                            Duration = if ($Response.duration) { $Response.duration } else { $null }
+                            Segments = if ($Response.segments) { $Response.segments } else { $null }
+                            Model = $Model
+                            ResponseFormat = $ResponseFormat
+                        }
+                    } else {
+                        # For text, srt, vtt formats, return the raw response
+                        [PSCustomObject]@{
+                            AudioFile = $Path
+                            Content = $Response
+                            Model = $Model
+                            ResponseFormat = $ResponseFormat
+                        }
                     }
                 }
-            }
-            catch [Microsoft.PowerShell.Commands.HttpResponseException] {
-                $ErrorMessage = if ($_.ErrorDetails.Message) {
-                    ($_.ErrorDetails.Message | ConvertFrom-Json).error.message
-                } else {
-                    $_.Exception.Message
+                catch [Microsoft.PowerShell.Commands.HttpResponseException] {
+                    $ErrorMessage = if ($_.ErrorDetails.Message) {
+                        ($_.ErrorDetails.Message | ConvertFrom-Json).error.message
+                    } else {
+                        $_.Exception.Message
+                    }
+                    throw [System.Net.Http.HttpRequestException]::new("Failed to transcribe audio '$Path': $ErrorMessage", $_.Exception)
                 }
-                throw [System.Net.Http.HttpRequestException]::new("Failed to transcribe audio '$Path': $ErrorMessage", $_.Exception)
             }
         }
     }

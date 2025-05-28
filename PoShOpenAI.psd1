@@ -21,7 +21,7 @@
         'Invoke-OpenAIChat'
         'Send-ChatMessage'
         'Start-ChatConversation'
-        'Get-OpenAIModels'
+        'Get-OpenAIModelList'
         'Get-OpenAIModel'
         'Get-OpenAIModelDirectory'
         'Get-OpenAIModelRecommendations'

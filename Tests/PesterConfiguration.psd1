@@ -5,7 +5,7 @@
         Output = 'Detailed'
     }
     TestResult = @{
-        Enabled = $true
+        Enabled = $false
         OutputPath = 'Tests/TestResults.xml'
     }
 }

@@ -16,7 +16,7 @@ function Start-OpenAIRun {
     .PARAMETER Metadata
     Additional metadata
     #>
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ThreadId,
@@ -27,17 +27,16 @@ function Start-OpenAIRun {
         [array]$Tools = $null,
         [hashtable]$Metadata = @{}
     )
-    
-    $Body = @{
-        assistant_id = $AssistantId
-        metadata = $Metadata
+    if ($PSCmdlet.ShouldProcess($ThreadId, 'Start OpenAI run on thread')) {
+        $Body = @{
+            assistant_id = $AssistantId
+            metadata = $Metadata
+        }
+        if ($Model) { $Body.model = $Model }
+        if ($Instructions) { $Body.instructions = $Instructions }
+        if ($Tools) { $Body.tools = $Tools }
+        return Invoke-OpenAIRequest -Endpoint "threads/$ThreadId/runs" -Body $Body
     }
-    
-    if ($Model) { $Body.model = $Model }
-    if ($Instructions) { $Body.instructions = $Instructions }
-    if ($Tools) { $Body.tools = $Tools }
-    
-    return Invoke-OpenAIRequest -Endpoint "threads/$ThreadId/runs" -Body $Body
 }
 
 function Get-OpenAIRunList {
@@ -129,15 +128,18 @@ function Stop-OpenAIRun {
     .PARAMETER RunId
     ID of the run to cancel
     #>
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ThreadId,
         [Parameter(Mandatory = $true)]
         [string]$RunId
     )
-    
-    return Invoke-OpenAIRequest -Endpoint "threads/$ThreadId/runs/$RunId/cancel" -Method "POST"
+    process {
+        if ($PSCmdlet.ShouldProcess($RunId, 'Cancel OpenAI run')) {
+            return Invoke-OpenAIRequest -Endpoint "threads/$ThreadId/runs/$RunId/cancel" -Method "POST"
+        }
+    }
 }
 
 function Submit-OpenAIToolOutput {

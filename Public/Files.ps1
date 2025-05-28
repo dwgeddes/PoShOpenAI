@@ -22,7 +22,7 @@ function Add-OpenAIFile {
     .EXAMPLE
     Add-OpenAIFile -Path "data.json" -ForAssistant
     #>
-    [CmdletBinding(DefaultParameterSetName = 'ByPath')]
+    [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = 'ByPath')]
     param(
         [Parameter(Mandatory = $true, ValueFromPipeline = $true, ValueFromPipelineByPropertyName = $true, Position = 0, ParameterSetName = 'ByPath')]
         [Alias('FullName')]
@@ -44,67 +44,69 @@ function Add-OpenAIFile {
     )
     process {
         foreach ($InputPath in $Path) {
-            $PlainTextKey = $null
-            try {
-                # Get API key securely
-                if (-not $Global:OpenAIConfig.ApiKey) {
-                    Write-Error "OpenAI API key not configured. Use Set-OpenAIKey first."
-                    return
-                }
-                $PlainTextKey = Convert-SecureStringToPlainText -SecureString $Global:OpenAIConfig.ApiKey
-                $Uri = "$($Global:OpenAIConfig.BaseUrl)/files"
-                $Headers = @{ "Authorization" = "Bearer $PlainTextKey" }
-                if ($Global:OpenAIConfig.Organization) {
-                    $Headers["OpenAI-Organization"] = $Global:OpenAIConfig.Organization
-                }
-                # Determine purpose
-                $resolvedPurpose = $null
-                if ($ForAssistant) { $resolvedPurpose = 'assistants' }
-                elseif ($ForFineTune) { $resolvedPurpose = 'fine-tune' }
-                elseif ($ForBatch) { $resolvedPurpose = 'batch' }
-                elseif ($ForVision) { $resolvedPurpose = 'vision' }
-                elseif ($Purpose) { $resolvedPurpose = $Purpose }
-                else {
-                    Write-Error "You must specify a file purpose (e.g., -ForAssistant, -ForFineTune, -ForBatch, -ForVision, or -Purpose)."
-                    return
-                }
-                # PowerShell 7 improved multipart form data handling
-                $FileItem = Get-Item $InputPath
-                $Form = @{ file = $FileItem; purpose = $resolvedPurpose }
-                $Response = $null
+            if ($PSCmdlet.ShouldProcess($InputPath, 'Upload file to OpenAI')) {
+                $PlainTextKey = $null
                 try {
-                    $Response = Invoke-RestMethod -Uri $Uri -Method POST -Form $Form -Headers $Headers -TimeoutSec $Global:OpenAIConfig.TimeoutSec
-                } catch {
-                    Write-Error "Failed to upload file '$InputPath': $($_.Exception.Message)"
+                    # Get API key securely
+                    if (-not $Global:OpenAIConfig.ApiKey) {
+                        Write-Error "OpenAI API key not configured. Use Set-OpenAIKey first."
+                        return
+                    }
+                    $PlainTextKey = Convert-SecureStringToPlainText -SecureString $Global:OpenAIConfig.ApiKey
+                    $Uri = "$($Global:OpenAIConfig.BaseUrl)/files"
+                    $Headers = @{ "Authorization" = "Bearer $PlainTextKey" }
+                    if ($Global:OpenAIConfig.Organization) {
+                        $Headers["OpenAI-Organization"] = $Global:OpenAIConfig.Organization
+                    }
+                    # Determine purpose
+                    $resolvedPurpose = $null
+                    if ($ForAssistant) { $resolvedPurpose = 'assistants' }
+                    elseif ($ForFineTune) { $resolvedPurpose = 'fine-tune' }
+                    elseif ($ForBatch) { $resolvedPurpose = 'batch' }
+                    elseif ($ForVision) { $resolvedPurpose = 'vision' }
+                    elseif ($Purpose) { $resolvedPurpose = $Purpose }
+                    else {
+                        Write-Error "You must specify a file purpose (e.g., -ForAssistant, -ForFineTune, -ForBatch, -ForVision, or -Purpose)."
+                        return
+                    }
+                    # PowerShell 7 improved multipart form data handling
+                    $FileItem = Get-Item $InputPath
+                    $Form = @{ file = $FileItem; purpose = $resolvedPurpose }
+                    $Response = $null
+                    try {
+                        $Response = Invoke-RestMethod -Uri $Uri -Method POST -Form $Form -Headers $Headers -TimeoutSec $Global:OpenAIConfig.TimeoutSec
+                    } catch {
+                        Write-Error "Failed to upload file '$InputPath': $($_.Exception.Message)"
+                        [PSCustomObject]@{
+                            Path = $InputPath
+                            Purpose = $resolvedPurpose
+                            Success = $false
+                            Error = $_.Exception.Message
+                            Timestamp = Get-Date
+                        }
+                        continue
+                    }
                     [PSCustomObject]@{
+                        Id = $Response.id
+                        FileName = $Response.filename
+                        Purpose = $Response.purpose
+                        Bytes = $Response.bytes
+                        CreatedAt = [DateTimeOffset]::FromUnixTimeSeconds($Response.created_at).DateTime
+                        Status = $Response.status
                         Path = $InputPath
-                        Purpose = $resolvedPurpose
-                        Success = $false
-                        Error = $_.Exception.Message
-                        Timestamp = Get-Date
-                    }
-                    continue
-                }
-                [PSCustomObject]@{
-                    Id = $Response.id
-                    FileName = $Response.filename
-                    Purpose = $Response.purpose
-                    Bytes = $Response.bytes
-                    CreatedAt = [DateTimeOffset]::FromUnixTimeSeconds($Response.created_at).DateTime
-                    Status = $Response.status
-                    Path = $InputPath
-                    Success = $true
-                    ProcessingInfo = @{
-                        UploadedAt = Get-Date
-                        FileSizeMB = [Math]::Round($Response.bytes / 1MB, 2)
-                        ContentType = if ($FileItem.Extension) { $FileItem.Extension } else { "Unknown" }
+                        Success = $true
+                        ProcessingInfo = @{
+                            UploadedAt = Get-Date
+                            FileSizeMB = [Math]::Round($Response.bytes / 1MB, 2)
+                            ContentType = if ($FileItem.Extension) { $FileItem.Extension } else { "Unknown" }
+                        }
                     }
                 }
-            }
-            finally {
-                # Clear API key from memory
-                if ($PlainTextKey) {
-                    Clear-Variable -Name PlainTextKey -Force -ErrorAction SilentlyContinue
+                finally {
+                    # Clear API key from memory
+                    if ($PlainTextKey) {
+                        Clear-Variable -Name PlainTextKey -Force -ErrorAction SilentlyContinue
+                    }
                 }
             }
         }
@@ -118,7 +120,7 @@ function Import-OpenAIAssistantData {
     .PARAMETER Path
     Path(s) to upload
     #>
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true, ValueFromPipeline = $true, ValueFromPipelineByPropertyName = $true, Position=0)]
         [Alias('FullName')]
@@ -126,7 +128,9 @@ function Import-OpenAIAssistantData {
     )
     process {
         foreach ($p in $Path) {
-            Add-OpenAIFile -Path $p -ForAssistant
+            if ($PSCmdlet.ShouldProcess($p, 'Import assistant data file to OpenAI')) {
+                Add-OpenAIFile -Path $p -ForAssistant
+            }
         }
     }
 }
@@ -138,7 +142,7 @@ function Import-OpenAIFineTuneData {
     .PARAMETER Path
     Path(s) to upload
     #>
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true, ValueFromPipeline = $true, ValueFromPipelineByPropertyName = $true, Position=0)]
         [Alias('FullName')]
@@ -146,7 +150,9 @@ function Import-OpenAIFineTuneData {
     )
     process {
         foreach ($p in $Path) {
-            Add-OpenAIFile -Path $p -ForFineTune
+            if ($PSCmdlet.ShouldProcess($p, 'Import fine-tune data file to OpenAI')) {
+                Add-OpenAIFile -Path $p -ForFineTune
+            }
         }
     }
 }
@@ -158,7 +164,7 @@ function Import-OpenAIBatchData {
     .PARAMETER Path
     Path(s) to upload
     #>
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true, ValueFromPipeline = $true, ValueFromPipelineByPropertyName = $true, Position=0)]
         [Alias('FullName')]
@@ -166,7 +172,9 @@ function Import-OpenAIBatchData {
     )
     process {
         foreach ($p in $Path) {
-            Add-OpenAIFile -Path $p -ForBatch
+            if ($PSCmdlet.ShouldProcess($p, 'Import batch data file to OpenAI')) {
+                Add-OpenAIFile -Path $p -ForBatch
+            }
         }
     }
 }
@@ -178,7 +186,7 @@ function Import-OpenAIVisionData {
     .PARAMETER Path
     Path(s) to upload
     #>
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true, ValueFromPipeline = $true, ValueFromPipelineByPropertyName = $true, Position=0)]
         [Alias('FullName')]
@@ -186,7 +194,9 @@ function Import-OpenAIVisionData {
     )
     process {
         foreach ($p in $Path) {
-            Add-OpenAIFile -Path $p -ForVision
+            if ($PSCmdlet.ShouldProcess($p, 'Import vision data file to OpenAI')) {
+                Add-OpenAIFile -Path $p -ForVision
+            }
         }
     }
 }
@@ -221,12 +231,16 @@ function Remove-OpenAIFile {
     .PARAMETER FileId
     ID of the file to delete
     #>
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
         [string]$FileId
     )
-    
-    return Invoke-OpenAIRequest -Endpoint "files/$FileId" -Method "DELETE"
+    process {
+        if ($PSCmdlet.ShouldProcess($FileId, 'Delete file from OpenAI')) {
+            return Invoke-OpenAIRequest -Endpoint "files/$FileId" -Method "DELETE"
+        }
+    }
 }
 
 function Get-OpenAIFileContent {

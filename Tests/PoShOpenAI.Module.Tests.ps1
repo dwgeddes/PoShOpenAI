@@ -26,3 +26,10 @@ Describe 'PoShOpenAI Module Import and Export' {
         }
     }
 }
+
+Describe 'Invoke-OpenAIPrompt Parameter Validation' {
+    BeforeAll { Import-Module "$PSScriptRoot/../PoShOpenAI.psd1" -Force }
+    It 'Should throw on empty prompt' {
+        { Invoke-OpenAIPrompt -Prompt '' } | Should -Throw
+    }
+}

@@ -12,6 +12,7 @@ function New-OpenAIBatch {
     .PARAMETER Metadata
     Additional metadata
     #>
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
         [string]$InputFileId,
@@ -21,14 +22,16 @@ function New-OpenAIBatch {
         [hashtable]$Metadata = @{}
     )
     
-    $Body = @{
-        input_file_id = $InputFileId
-        endpoint = $Endpoint
-        completion_window = $CompletionWindow
-        metadata = $Metadata
+    if ($PSCmdlet.ShouldProcess($InputFileId, 'Create new OpenAI batch job')) {
+        $Body = @{
+            input_file_id = $InputFileId
+            endpoint = $Endpoint
+            completion_window = $CompletionWindow
+            metadata = $Metadata
+        }
+        
+        return Invoke-OpenAIRequest -Endpoint "batches" -Body $Body
     }
-    
-    return Invoke-OpenAIRequest -Endpoint "batches" -Body $Body
 }
 
 function Get-OpenAIBatchList {
@@ -74,11 +77,15 @@ function Stop-OpenAIBatch {
     .PARAMETER BatchId
     ID of the batch job to cancel
     #>
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
         [string]$BatchId
     )
-    
-    return Invoke-OpenAIRequest -Endpoint "batches/$BatchId/cancel" -Method "POST"
+    process {
+        if ($PSCmdlet.ShouldProcess($BatchId, 'Cancel OpenAI batch job')) {
+            return Invoke-OpenAIRequest -Endpoint "batches/$BatchId/cancel" -Method "POST"
+        }
+    }
 }
 #endregion

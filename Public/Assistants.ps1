@@ -18,6 +18,7 @@ function New-OpenAIAssistant {
     .PARAMETER Metadata
     Additional metadata
     #>
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Model,
@@ -29,18 +30,18 @@ function New-OpenAIAssistant {
         [hashtable]$Metadata = @{}
     )
     
-    $Body = @{
-        model = $Model
-        tools = $Tools
-        file_ids = $FileIds
-        metadata = $Metadata
+    if ($PSCmdlet.ShouldProcess($Name, 'Create new OpenAI assistant')) {
+        $Body = @{
+            model = $Model
+            tools = $Tools
+            file_ids = $FileIds
+            metadata = $Metadata
+        }
+        if ($Name) { $Body.name = $Name }
+        if ($Description) { $Body.description = $Description }
+        if ($Instructions) { $Body.instructions = $Instructions }
+        return Invoke-OpenAIRequest -Endpoint "assistants" -Body $Body
     }
-    
-    if ($Name) { $Body.name = $Name }
-    if ($Description) { $Body.description = $Description }
-    if ($Instructions) { $Body.instructions = $Instructions }
-    
-    return Invoke-OpenAIRequest -Endpoint "assistants" -Body $Body
 }
 
 function Get-OpenAIAssistantList {
@@ -107,6 +108,7 @@ function Update-OpenAIAssistant {
     .PARAMETER Metadata
     Additional metadata
     #>
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
         [string]$AssistantId,
@@ -119,16 +121,17 @@ function Update-OpenAIAssistant {
         [hashtable]$Metadata = $null
     )
     
-    $Body = @{}
-    if ($Model) { $Body.model = $Model }
-    if ($Name) { $Body.name = $Name }
-    if ($Description) { $Body.description = $Description }
-    if ($Instructions) { $Body.instructions = $Instructions }
-    if ($Tools) { $Body.tools = $Tools }
-    if ($FileIds) { $Body.file_ids = $FileIds }
-    if ($Metadata) { $Body.metadata = $Metadata }
-    
-    return Invoke-OpenAIRequest -Endpoint "assistants/$AssistantId" -Body $Body -Method "POST"
+    if ($PSCmdlet.ShouldProcess($AssistantId, 'Update OpenAI assistant')) {
+        $Body = @{}
+        if ($Model) { $Body.model = $Model }
+        if ($Name) { $Body.name = $Name }
+        if ($Description) { $Body.description = $Description }
+        if ($Instructions) { $Body.instructions = $Instructions }
+        if ($Tools) { $Body.tools = $Tools }
+        if ($FileIds) { $Body.file_ids = $FileIds }
+        if ($Metadata) { $Body.metadata = $Metadata }
+        return Invoke-OpenAIRequest -Endpoint "assistants/$AssistantId" -Body $Body -Method "POST"
+    }
 }
 
 function Remove-OpenAIAssistant {
@@ -138,11 +141,15 @@ function Remove-OpenAIAssistant {
     .PARAMETER AssistantId
     ID of the assistant to delete
     #>
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
         [string]$AssistantId
     )
-    
-    return Invoke-OpenAIRequest -Endpoint "assistants/$AssistantId" -Method "DELETE"
+    process {
+        if ($PSCmdlet.ShouldProcess($AssistantId, 'Delete OpenAI assistant')) {
+            return Invoke-OpenAIRequest -Endpoint "assistants/$AssistantId" -Method "DELETE"
+        }
+    }
 }
 #endregion

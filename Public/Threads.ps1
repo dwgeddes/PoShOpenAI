@@ -72,13 +72,16 @@ function Remove-OpenAIThread {
     .PARAMETER ThreadId
     ID of the thread to delete
     #>
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
         [string]$ThreadId
     )
-    
-    return Invoke-OpenAIRequest -Endpoint "threads/$ThreadId" -Method "DELETE"
+    process {
+        if ($PSCmdlet.ShouldProcess($ThreadId, 'Delete OpenAI thread')) {
+            return Invoke-OpenAIRequest -Endpoint "threads/$ThreadId" -Method "DELETE"
+        }
+    }
 }
 
 #endregion
